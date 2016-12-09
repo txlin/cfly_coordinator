@@ -379,13 +379,9 @@ int main(int argc, char** argv) {
    POS_DATA * position_ptr = &position_data;
 
    init(position_ptr, controller_ptr);
-   ros::Duration(8.0).sleep();
    listener.waitForTransform(world_frame, frame, 
                              ros::Time(0), ros::Duration(3.0));
    ros::spinOnce();
-   if(!setBatteryStatus()) {
-      ros::spin();
-   }
 
    listener.lookupTransform(world_frame, frame, ros::Time(0), transform);
    position_ptr->pos_x = transform.getOrigin().x();

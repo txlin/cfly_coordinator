@@ -165,7 +165,7 @@ int main(int argc, char** argv) {
 	ros::Rate rate(freq);
 
 	ros::spinOnce();
-	ros::Duration(5.0).sleep();
+	ros::Duration(3.0).sleep();
 	init_A();
 	while (ros::ok()) {
 		ros::spinOnce();

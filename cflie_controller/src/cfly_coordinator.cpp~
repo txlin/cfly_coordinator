@@ -19,18 +19,30 @@
 #define freq 10.0
 
 #define OFFSET 1.2
-#define TASKS 8
+#define TASKS 12
 #define START_TASKS 5
-#define kp 4.0
-#define kt 12.0
-#define kd 6.0
-#define kl 4.0
-#define kb 70.0 //80 too high
-#define kdb 70.0
+#define TASK_TIME 5
+#define TASK_PRI 10
+#define BATTERY_BUFFER 8
+
+#define kp 22.0
+#define kt 8.0
+#define kd 12.0
+#define kl 0.0
+#define kb 150.0 
+#define kdb 17.0
+
+#define BORDERX 1.2
+#define BORDERY 1.8
+#define MAX_V 0.4
+#define MAX_LAND_V 0.3
+#define Qvd MAX_V*210
+
+#define MAX_T (sqrt(4*BORDERX*BORDERX + 4*BORDERY*BORDERY)+1)/MAX_V
 
 using namespace std;
 
-ros::Publisher traj_pub, viz_pub, stop_pub, bat_pub, task_pub, border_pub;
+ros::Publisher traj_pub, viz_pub, stop_pub, bat_pub, base_pub, task_pub, border_pub;
 ros::Subscriber halt_sub, traj_sub, qb_sub, tb_sub, joy_sub;
 ros::Timer timer_event;
 ros::Timer life_event;
@@ -62,12 +74,13 @@ struct task {
 struct robot_data {
 	string frame;
 	string world;
-	float b_points[16];
+	float b_points[BATTERY_BUFFER];
 	int b_count;
 	float battery;
 	float v2d;
 	float b_min;
 	float b_max;
+	float battery_low;
 
 	float x;
 	float y;
@@ -130,24 +143,27 @@ void qb_call(const std_msgs::Float32::ConstPtr& msg)
 {
 	quad.b_points[quad.b_count] = msg->data;
 	quad.b_count++;
-	quad.b_count &= 15;
+	quad.b_count &= (BATTERY_BUFFER-1);
 	quad.battery = 0.0;
-	for(int i = 0; i < 16; i++) {
-		quad.battery += quad.b_points[quad.b_count];
+	for(int i = 0; i < BATTERY_BUFFER; i++) {
+		quad.battery += quad.b_points[i];
 	}
-	quad.battery = quad.battery / 16;
+	quad.battery = quad.battery / BATTERY_BUFFER;
+	if(quad.battery < quad.battery_low) {
+		quad.battery_low = quad.battery;
+	}
 }
 
 void tb_call(const std_msgs::Float32::ConstPtr& msg)
 {
 	t_bot.b_points[t_bot.b_count] = msg->data;
 	t_bot.b_count++;
-	t_bot.b_count &= 15;
+	t_bot.b_count &= (BATTERY_BUFFER-1);
 	t_bot.battery = 0.0;
-	for(int i = 0; i < 16; i++) {
+	for(int i = 0; i < BATTERY_BUFFER; i++) {
 		t_bot.battery += t_bot.b_points[t_bot.b_count];
 	}
-	t_bot.battery = t_bot.battery / 16;
+	t_bot.battery = t_bot.battery / BATTERY_BUFFER;
 }
 
 void timerCallback(const ros::TimerEvent&) 
@@ -165,7 +181,7 @@ void timerCallback(const ros::TimerEvent&)
 		tasks[newTask].z = 1.0;
 		tasks[newTask].time = rand() % 5 + 1;
 		tasks[newTask].lifeTime = 0;
-		tasks[newTask].priority = rand() % 10 + 1;
+		tasks[newTask].priority = rand() % TASK_PRI + 1;
 		tasks[newTask].isDone = false;
 		ROS_INFO("New Task added at x: %f, y: %f", tasks[newTask].x, tasks[newTask].y);
 
@@ -179,7 +195,9 @@ void lifetimerCallback(const ros::TimerEvent&)
 {
 	for(int i = 2; i < TASKS; i++) {
 		if(!tasks[i].isDone) {
-			tasks[i].lifeTime++;
+			if(tasks[i].cost > 1) {
+				tasks[i].lifeTime++;
+			}
 		}
 	}
 }
@@ -190,14 +208,14 @@ void init(string quad_str, string turtle_str, string world_str)
 	quad.frame = quad_str;
 	quad.world = world_str;
 	quad.x = quad.y = quad.z = 0.0;
-	quad.max_v = 0.3;
+	quad.max_v = MAX_V;
 
-	quad.v2d = 9.5;
-	quad.battery = 4.0;
+	quad.v2d = 84;
+	quad.battery = quad.battery_low = 4.0;
 	quad.b_min = 3.15;
-	quad.b_max = 4.1;
+	quad.b_max = 4.0;
 
-	for(int i = 0; i < 16; i++) {
+	for(int i = 0; i < BATTERY_BUFFER; i++) {
 		quad.b_points[i] = 4.0;
 	}
 	quad.b_count = 0;
@@ -208,7 +226,7 @@ void init(string quad_str, string turtle_str, string world_str)
 	t_bot.xp = t_bot.yp = t_bot.zp = 0.0;
 
 	t_bot.battery = 4.0;
-	for(int i = 0; i < 16; i++) {
+	for(int i = 0; i < BATTERY_BUFFER; i++) {
 		t_bot.b_points[i] = 4.0;
 	}
 	t_bot.b_count = 0;
@@ -220,11 +238,14 @@ void init(string quad_str, string turtle_str, string world_str)
 
 void init_tasks(void)
 {
+	tasks[0].isDone = false;
+	tasks[1].isDone = false;
+
 	for(int i = 2; i < START_TASKS; i++) {
-		tasks[i].x = float(rand() % 240) / 100 - 1.2;
-		tasks[i].y = float(rand() % 300) / 100 - 1.8;
+		tasks[i].x = float(rand() % int(2000*BORDERX)) / 1000 - BORDERX;
+		tasks[i].y = float(rand() % int(2000*BORDERY)) / 1000 - BORDERY;
 		tasks[i].z = 1.0;
-		tasks[i].time = rand() % 5 + 1;
+		tasks[i].time = rand() % TASK_TIME + 1;
 		tasks[i].lifeTime = 0;
 		tasks[i].priority = rand() % 10 + 1;
 		tasks[i].isDone = false;
@@ -254,17 +275,51 @@ void show_battery(float radius)
 
 	float i = 0.0;
 	while(i < 2*M_PI) {
-		vis_ring.x = cos(i) * radius;
-		vis_ring.y = sin(i) * radius;
+		vis_ring.x = cos(i) * radius + quad.x;
+		vis_ring.y = sin(i) * radius + quad.y;
+		vis_ring.z = quad.z;
 		ring.points.push_back(vis_ring);
 		i += 0.05;
 
-		vis_ring.x = cos(i) * radius;
-		vis_ring.y = sin(i) * radius;
+		vis_ring.x = cos(i) * radius + quad.x;
+		vis_ring.y = sin(i) * radius + quad.y;
+		vis_ring.z = quad.z;
 		ring.points.push_back(vis_ring);
 	}
 
 	bat_pub.publish(ring);
+}
+
+void show_base_range(float radius)
+{
+	visualization_msgs::Marker ring;
+	geometry_msgs::Point vis_ring;
+
+	ring.header.frame_id = quad.world;
+	ring.header.stamp = ros::Time::now();
+	ring.id = 2;
+	ring.action = visualization_msgs::Marker::ADD;
+	ring.type = visualization_msgs::Marker::LINE_LIST;
+	ring.color.a = 1.0;
+	ring.color.g = 1.0;				
+	ring.color.b = 0.5;
+
+	ring.scale.x = 0.05;
+	ring.scale.y = 0.05;
+
+	float i = 0.0;
+	while(i < 2*M_PI) {
+		vis_ring.x = cos(i) * radius + t_bot.x;
+		vis_ring.y = sin(i) * radius + t_bot.y;
+		ring.points.push_back(vis_ring);
+		i += 0.05;
+
+		vis_ring.x = cos(i) * radius + t_bot.x;
+		vis_ring.y = sin(i) * radius + t_bot.y;
+		ring.points.push_back(vis_ring);
+	}
+
+	base_pub.publish(ring);
 }
 
 void show_border(void)
@@ -284,44 +339,44 @@ void show_border(void)
 	border.scale.y = 1.0;
 	border.scale.z = 1.0;
 
-	corner.x = -1.2;
-	corner.y = -1.8;	
-	corner.z = 0.75;
+	corner.x = -BORDERX;
+	corner.y = -BORDERY;	
+	corner.z = 1.0;
 	border.points.push_back(corner);
 
-	corner.x = -1.2;
-	corner.y = 1.8;	
-	corner.z = 0.75;
+	corner.x = -BORDERX;
+	corner.y = BORDERY;	
+	corner.z = 1.0;
 	border.points.push_back(corner);
 
-	corner.x = -1.2;
-	corner.y = 1.8;	
-	corner.z = 0.75;
+	corner.x = -BORDERX;
+	corner.y = BORDERY;	
+	corner.z = 1.0;
 	border.points.push_back(corner);
 
-	corner.x = 1.2;
-	corner.y = 1.8;	
-	corner.z = 0.75;
+	corner.x = BORDERX;
+	corner.y = BORDERY;	
+	corner.z = 1.0;
 	border.points.push_back(corner);
 
-	corner.x = 1.2;
-	corner.y = 1.8;	
-	corner.z = 0.75;
+	corner.x = BORDERX;
+	corner.y = BORDERY;	
+	corner.z = 1.0;
 	border.points.push_back(corner);
 
-	corner.x = 1.2;
-	corner.y = -1.8;	
-	corner.z = 0.75;
+	corner.x = BORDERX;
+	corner.y = -BORDERY;	
+	corner.z = 1.0;
 	border.points.push_back(corner);
 
-	corner.x = 1.2;
-	corner.y = -1.8;	
-	corner.z = 0.75;
+	corner.x = BORDERX;
+	corner.y = -BORDERY;	
+	corner.z = 1.0;
 	border.points.push_back(corner);
 
-	corner.x = -1.2;
-	corner.y = -1.8;	
-	corner.z = 0.75;
+	corner.x = -BORDERX;
+	corner.y = -BORDERY;	
+	corner.z = 1.0;
 	border.points.push_back(corner);
 
 	border_pub.publish(border);
@@ -378,33 +433,48 @@ float getTime(float x, float y, float z)
 	return d_target/quad.max_v;
 }
 
+void printCosts(void)
+{
+	ROS_INFO("Turtlebot Landing: %f", tasks[0].cost);
+	ROS_INFO("Center Landing: %f", tasks[1].cost);
+
+	for(int i = 2; i < TASKS; i++) {
+		if(!tasks[i].isDone) {
+			ROS_INFO("Task %i: %f", i, tasks[i].cost);
+		}	
+	}
+}
+
 int setCosts(void)
 {
-/*	Cost_task = kd*(t_travel) + kt*(t_task) - kp*(priority) - kl*(lifeTime)
-	Cost_batt = min(kd*(t_center + t_land) - kb*(battery), kd*(t_turtle + t_land) - kb*(battery))
+/*	Cost_task = kd*(Max_t - t_travel) + kt*(t_task) - kp*(priority) - kl*(lifeTime)
+	Cost_batt = min(kd*(Max_t - (t_center + t_land)) - kb*(battery), kd*(t_turtle + t_land) - kb*(battery))
 */
 	int low_cost = -1;
 	float lowest_cost = 10000;
-	float t_center = (sqrt(pow(quad.x,2) + pow(quad.y,2) + pow(quad.z - 0.0,2)))/quad.max_v;
+	float t_center = (sqrt(pow(quad.x,2) + pow(quad.y,2) + pow(quad.z,2)))/quad.max_v;
 	float t_turtle = (sqrt(pow(quad.x - t_bot.x,2) + pow(quad.y - t_bot.y,2) + pow(quad.z - t_bot.z + 0.05,2)))/quad.max_v;
 
-	tasks[0].cost = kdb*(t_turtle + tLand) - kb*(quad.b_max - quad.battery);
-	tasks[1].cost = kdb*(t_center + tLand) - kb*(quad.b_max - quad.battery);
+	tasks[0].cost = kdb*(MAX_T - (t_turtle + tLand)) - kb*(quad.b_max - quad.battery_low);
+	tasks[1].cost = kdb*(MAX_T - (t_center + tLand)) - kb*(quad.b_max - quad.battery_low);
 	
 	if(tasks[0].cost < lowest_cost) {
 		low_cost = 0;
 		lowest_cost = tasks[0].cost;
 	}
 
-	/*if(tasks[1].cost < lowest_cost) {
+	if(tasks[1].cost < lowest_cost) {
 		low_cost = 1;
 		lowest_cost = tasks[1].cost;
-	}*/
+	}
 
 	for(int i = 2; i < TASKS; i++) {
 		if(!tasks[i].isDone) {
 			float t_travel = (sqrt(pow(quad.x - tasks[i].x,2) + pow(quad.y - tasks[i].y,2) + pow(quad.z - tasks[i].z,2)))/quad.max_v;
-			tasks[i].cost = kd*t_travel + kt*tasks[i].time - kp*tasks[i].priority - kl*tasks[i].lifeTime;
+			tasks[i].cost = kd*(MAX_T-t_travel) + kt*tasks[i].time - kp*tasks[i].priority - kl*tasks[i].lifeTime;
+			if(tasks[i].cost < 1) {
+				tasks[i].cost = 1;
+			}
 			if(tasks[i].cost < lowest_cost) {
 				low_cost = i;
 				lowest_cost = tasks[i].cost;
@@ -423,8 +493,8 @@ int main(int argc, char** argv) {
 	ros::NodeHandle nh;
 
 	//Setup Timer
-	timer_event = nh.createTimer(ros::Duration(15.0), timerCallback, false);
-	life_event = nh.createTimer(ros::Duration(4.0), lifetimerCallback, false);
+	timer_event = nh.createTimer(ros::Duration(12.0), timerCallback, false);
+	life_event = nh.createTimer(ros::Duration(5.0), lifetimerCallback, false);
 		
 	// Grab Launch file parameters
 	string quad_name, quad_frame, land_frame, world_frame;
@@ -438,6 +508,7 @@ int main(int argc, char** argv) {
 	stop_pub = nh.advertise<std_msgs::Bool>(quad_name + "/stop",10);
 	viz_pub = nh.advertise<visualization_msgs::Marker>(quad_name + "/land_line",10);
 	bat_pub = nh.advertise<visualization_msgs::Marker>(quad_name + "/battery_ring", 10);
+	base_pub = nh.advertise<visualization_msgs::Marker>(quad_name + "/base_ring", 10);
 	task_pub = nh.advertise<visualization_msgs::Marker>(quad_name + "/tasks", 10);
 	border_pub = nh.advertise<visualization_msgs::Marker>(quad_name + "/border", 10);
 
@@ -450,7 +521,7 @@ int main(int argc, char** argv) {
 	ros::Rate rate(freq);
 	tf::StampedTransform transform;
 	tf::TransformListener listener;
-	ros::Duration(8.0).sleep();
+	ros::Duration(7.0).sleep();
 
         listener.waitForTransform(world_frame, quad_frame, ros::Time(0), ros::Duration(5.0));  //Uncomment with Vicon
 
@@ -494,14 +565,15 @@ int main(int argc, char** argv) {
 		t_bot.zp = t_bot.z;
 
 		//Battery, Border, and Tasks Visualization	
-		float b_radius = (quad.battery - quad.b_min) * quad.v2d;
+		float b_radius = (quad.battery_low - quad.b_min) * quad.v2d;
 		show_battery(b_radius);
+		show_base_range(MAX_LAND_V);
 		show_border();
 		show_tasks();
 
 		if(st_mach.state == 0) {
 			//Ascending to 0.0, 0.0, 1.0
-			float tTravel = getTime(0.0, 0.0, 1.0) + 2;
+			float tTravel = getTime(0, 0, 1.0);
 			st_mach.traj = false;
 			send_trajectory(tTravel, 2.0, 0.0, 0.0, 1.0);
 			st_mach.state = 1;
@@ -511,6 +583,7 @@ int main(int argc, char** argv) {
 			if(st_mach.traj) {
 				int current = setCosts();
 				float tTravel = getTime(tasks[current].x, tasks[current].y, tasks[current].z);
+				printCosts();
 
 				if((current != 0) && (current != 1)) {
 					ROS_INFO("Completing task %i with cost %f", current, tasks[current].cost);
@@ -563,7 +636,7 @@ int main(int argc, char** argv) {
 
 			if((xy_D < 0.1) && (z < 0.1)) {
 				ROS_INFO("Killing Motors!");
-				if(quad.battery < quad.b_min) {
+				if(quad.battery_low < quad.b_min) {
 					st_mach.state = 7;
 					ROS_INFO("Charging to full...");
 
@@ -575,14 +648,21 @@ int main(int argc, char** argv) {
 				std_msgs::Bool stop_msg;
 				stop_msg.data = true;
 				stop_pub.publish(stop_msg);
+				ros::Duration(3.0).sleep();
+
+			}else if((xy_D > 0.1) && (quad.z < 0.1)) {
+				ROS_INFO("Missed Target! Trying again...");
+				st_mach.traj = false;
+				st_mach.state = 3;
 			}
+
 		}else if(st_mach.state == 5) {
 			//Land at center
 			float tTravel = getTime(0, 0, 0);
 
 			if(st_mach.traj) {
 				ROS_INFO("Flying to center, travel time: %f", tTravel);
-				send_trajectory(tTravel, 0.0, 0.0, 0.0, 0.0);
+				send_trajectory(tTravel, 2.0, 0.0, 0.0, 0.0);
 				st_mach.traj = false;
 				st_mach.state = 6;	
 			}
@@ -592,7 +672,7 @@ int main(int argc, char** argv) {
 
 			if((xy_D < 0.1) && (quad.z < 0.1)) {
 				ROS_INFO("Killing Motors!");
-				if(quad.battery < quad.b_min) {
+				if(quad.battery_low < quad.b_min) {
 					st_mach.state = 7;
 					ROS_INFO("Charging to full...");
 
@@ -604,13 +684,15 @@ int main(int argc, char** argv) {
 				std_msgs::Bool stop_msg;
 				stop_msg.data = true;
 				stop_pub.publish(stop_msg);
+				ros::Duration(3.0).sleep();
 			}
+
 		}else if(st_mach.state == 7) {
 			//Charge to full	
 			if(quad.battery >= quad.b_max) {
 				int cur_task = setCosts();
 				ROS_INFO("Fully charged!");
-				if(cur_task != -1 && cur_task != -1 && cur_task != 0 && cur_task != 1 && !st_mach.ishalted) {
+				if(cur_task != -1 && cur_task != 0 && cur_task != 1 && !st_mach.ishalted) {
 					st_mach.state = 1;
 					std_msgs::Bool stop_msg;
 					stop_msg.data = false;
@@ -631,9 +713,9 @@ int main(int argc, char** argv) {
 				std_msgs::Bool stop_msg;
 				stop_msg.data = false;
 				stop_pub.publish(stop_msg);
+				send_trajectory(4, 1, quad.x, quad.y, 1.0);
+				st_mach.traj = false;
 
-			}else if(!st_mach.ishalted) {
-				ROS_INFO("No tasks to complete!! Ignoring takeoff command");
 			}
 		}
 		ros::spinOnce();
