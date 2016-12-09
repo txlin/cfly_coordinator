@@ -1,0 +1,36 @@
+<launch>
+
+  <arg name="port" value="/dev/ttyUSB0" />
+  <arg name="name" value="hummingbird_1" />
+  <arg name="quad_frame" value="/vicon/hummingbird_1/hummingbird_1" />
+  <arg name="world_frame" value="/odom" />
+  <arg name="loop" value="false" />
+  <arg name="loop_point" value="0" />
+  <arg name="file" value="avoid.txt" />
+  <arg name="tuning_file" value="default_h.yaml" />  
+
+  <!-- Vicon connection node -->
+  <include file="$(find vicon_bridge)/launch/vicon.launch" />
+
+  <!-- Asctec Position Controller for Hummingbird -->
+
+  <node name="joy_controller" pkg="joy" type="joy_node" output="screen"/>
+
+  <node name="asctec_controller" pkg="pc_asctec_sim" type="controller_node" output="screen">
+     <rosparam file="$(find pc_asctec_sim)/cfg/$(arg tuning_file)" command="load"/>
+
+     <param name="name" value="$(arg name)"/>
+     <param name="world_frame" value="$(arg world_frame)"/>
+     <param name="quad_frame" value="$(arg quad_frame)"/>
+
+  </node>
+
+  <node name="waypoint_server" 
+        pkg="pc_asctec_sim" 
+        type="trajectory_real_node" 
+        output="screen">
+
+     <param name="name" value="$(arg name)"/>
+  </node>
+
+</launch>

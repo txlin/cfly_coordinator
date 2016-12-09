@@ -1,0 +1,56 @@
+<launch>
+
+  <arg name="name" value="crazyflie" />
+  <arg name="port" value="ttyUSB0" />
+  <arg name="uri" value="radio://0/87/2M" />
+  <arg name="turtle_frame" value="/vicon/turtlebot_8/turtlebot_8" />
+  <arg name="quad_frame" value="/vicon/crazyflie_8/crazyflie_8" />
+  <arg name="world_frame" value="/odom" />
+  <arg name="file" value="cfly_trap.txt" />
+  <arg name="tuning_file" value="default_cfly.yaml" /> 
+
+  <include file="$(find vicon_bridge)/launch/vicon.launch" />
+  <include file="$(find crazyflie_driver)/launch/crazyflie_server.launch" />
+
+  <node name="joy_cfly" pkg="joy" type="joy_node" />
+
+  <group ns="$(arg name)">
+	<include file="$(find crazyflie_driver)/launch/crazyflie_add.launch" >
+		<arg name="uri" value="$(arg uri)" />
+		<arg name="tf_prefix" value="crazyflie" />
+		<arg name="enable_logging" value="True" />
+	</include>
+  </group>
+
+  <node name="cfly_controller" 
+        pkg="cflie_controller" 
+        type="cfly_controller_node"
+	output="screen">
+
+     <rosparam file="$(find cflie_controller)/cfg/$(arg tuning_file)" command="load"/>
+
+     <param name="name" value="$(arg name)"/>
+     <param name="world_frame" value="$(arg world_frame)"/>
+     <param name="quad_frame" value="$(arg quad_frame)"/>
+
+  </node>
+
+  <node name="waypoint_server" 
+        pkg="pc_asctec_sim" 
+        type="trajectory_real_node">
+
+     <param name="name" value="$(arg name)"/>
+  </node>
+
+  <node name="coordinator_node" 
+        pkg="cflie_controller" 
+        type="cfly_coordinator_node" 
+        output="screen">
+
+     <param name="quad_name" value="crazyflie"/>
+     <param name="quad_frame" value="/vicon/crazyflie_8/crazyflie_8"/>
+     <param name="land_frame" value="/vicon/turtlebot_8/turtlebot_8"/>
+     <param name="world_frame" value="/odom"/>
+  </node>
+
+</launch>

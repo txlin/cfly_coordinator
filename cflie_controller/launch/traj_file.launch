@@ -1,0 +1,39 @@
+<launch>
+
+  <arg name="port" value="/dev/ttyUSB0" />
+  <arg name="name" value="crazyflie" />
+  <arg name="quad_frame" value="/vicon/crazyflie_8/crazyflie_8" />
+  <arg name="world_frame" value="/odom" />
+  <arg name="loop" value="false" />
+  <arg name="loop_point" value="2" />
+  <arg name="file" value="cfly_hover.txt" />
+  <arg name="tuning_file" value="default_cfly.yaml" /> 
+
+  <include file="$(find vicon_bridge)/launch/vicon.launch" />
+
+  <node name="joy_controller" pkg="joy" type="joy_node"/>
+
+  <node name="cfly_controller" 
+        pkg="cflie_controller" 
+        type="cfly_controller_node">
+
+     <rosparam file="$(find cflie_controller)/cfg/$(arg tuning_file)" command="load"/>
+
+     <param name="name" value="$(arg name)"/>
+     <param name="world_frame" value="$(arg world_frame)"/>
+     <param name="quad_frame" value="$(arg quad_frame)"/>
+
+  </node>
+
+  <node name="waypoint_server" 
+        pkg="pc_asctec_sim" 
+        type="trajectory_file_node" 
+        output="screen">
+
+     <param name="name" value="$(arg name)"/>
+     <param name="loop" value="$(arg loop)"/>
+     <param name="loop_point" value="$(arg loop_point)"/>
+     <param name="file" value="$(arg file)"/>
+  </node>
+
+</launch>
