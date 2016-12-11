@@ -20,8 +20,9 @@ float k_p_yaw, k_i_yaw, k_d_yaw, k_a_yaw;
 
 bool steady = false;
 bool counting = false;
-bool stopped = false;
-
+bool stopped = true;
+bool joystop = true;
+bool final_stop = false;
 
 float final_x, final_y, final_z, final_yaw;
 int yaw_counter = 0;
@@ -187,14 +188,22 @@ void timerCallback(const ros::TimerEvent&) {
 }
 
 void quickStop(const std_msgs::Bool::ConstPtr& msg) {
+   joystop = msg->data;
    stopped = msg->data;
+}
+
+bool checkFalling(void) {
+   if(position_data.vel_z < -0.2 && position_data.acc_z < -3.5) {
+      return true;
+   }
+      return false;
 }
 
 void joy_callback(const sensor_msgs::Joy::ConstPtr& msg)
 {
    if(msg->buttons[1] && msg->buttons[4] && msg->buttons[5]) {
 	ROS_INFO("Joy Command Motor Kill!");
-	stopped = true;
+	final_stop = true;
    }
 }
 
@@ -465,7 +474,7 @@ int main(int argc, char** argv) {
     //Check if target goal was accomplished -> update new goal and publish goal confirm  
       goal_arrived(controller_ptr, position_ptr);
 
-      if(!stopped) {
+      if(!stopped && !joystop && !final_stop) {
       update_real_cmd(controller_ptr, position_ptr);
       accel_quad_cmd.publish(real_cmd);
 
@@ -490,6 +499,10 @@ int main(int argc, char** argv) {
 	 real_cmd.linear.z = 0.0;
 	 real_cmd.angular.z = 0.0;
          accel_quad_cmd.publish(real_cmd);
+
+	 if(checkFalling()) {
+	     stopped = false;
+	 }
       }
 
     //Fill State Data and Publish
