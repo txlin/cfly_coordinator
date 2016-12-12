@@ -21,7 +21,7 @@ float k_p_yaw, k_i_yaw, k_d_yaw, k_a_yaw;
 bool steady = false;
 bool counting = false;
 bool stopped = true;
-bool joystop = true;
+bool joystop = false;
 bool final_stop = false;
 
 float final_x, final_y, final_z, final_yaw;
@@ -188,8 +188,13 @@ void timerCallback(const ros::TimerEvent&) {
 }
 
 void quickStop(const std_msgs::Bool::ConstPtr& msg) {
-   joystop = msg->data;
-   stopped = msg->data;
+   if(!final_stop) {
+   	joystop = msg->data;
+   	stopped = msg->data;
+   }else {
+	joystop = true;
+	stopped = true;
+   }
 }
 
 bool checkFalling(void) {
@@ -474,7 +479,7 @@ int main(int argc, char** argv) {
     //Check if target goal was accomplished -> update new goal and publish goal confirm  
       goal_arrived(controller_ptr, position_ptr);
 
-      if(!stopped && !joystop && !final_stop) {
+      if(!stopped && !joystop) {
       update_real_cmd(controller_ptr, position_ptr);
       accel_quad_cmd.publish(real_cmd);
 

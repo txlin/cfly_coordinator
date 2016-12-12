@@ -20,7 +20,7 @@
 
 #define OFFSET 1.2
 #define TASKS 15
-#define START_TASKS 8
+#define START_TASKS 12
 #define TASK_TIME 5
 #define TASK_PRI 10
 #define BATTERY_BUFFER 8
@@ -29,12 +29,12 @@
 #define kt 8.0
 #define kd 12.0
 #define kl 1.0
-#define kb 410.0 
+#define kb 360.0 
 #define kdb 17.0
 
-#define BORDERX 1.2
+#define BORDERX 1.0
 #define BORDERY 1.8
-#define MAX_V 0.4
+#define MAX_V 0.2
 #define MAX_LAND_V 0.3
 #define Qvd MAX_V*210
 
@@ -74,7 +74,6 @@ struct task {
 	float y;
 	float z;
 	float priority;
-	float cost;
 	bool isDone;
 } task_data;
 
@@ -202,11 +201,10 @@ void timerCallback(const ros::TimerEvent&)
 
 void lifetimerCallback(const ros::TimerEvent&) 
 {
+	tasks[1].lifeTime++;
 	for(int i = 2; i < TASKS; i++) {
 		if(!tasks[i].isDone) {
-			if(tasks[i].cost > 1) {
-				tasks[i].lifeTime++;
-			}
+			tasks[i].lifeTime++;			
 		}
 	}
 }
@@ -221,7 +219,7 @@ void init(string quad_str, string turtle_str, string world_str)
 
 	quad.v2t = 12;
 	quad.battery = quad.battery_low = 4.0;
-	quad.b_min = 3.15;
+	quad.b_min = 3.5;
 	quad.b_max = 4.0;
 
 	for(int i = 0; i < BATTERY_BUFFER; i++) {
@@ -378,7 +376,7 @@ void show_optimal_path(void)
 	path.scale.x = 0.05;
 	path.scale.y = 0.05;
 
-	int i = st_mach.p_end;
+	int i = st_mach.p_now + 1;
 	while(i > 1) {
 		path_point.x = tasks[st_mach.path[i]].x;
 		path_point.y = tasks[st_mach.path[i]].y;
@@ -509,18 +507,6 @@ void printPath(void)
 {
 	cout << endl;
 
-	/*for(int i = 1; i < TASKS; i++) {
-		if(!tasks[i].isDone) {
-			cout << "Task: " << i << " ";
-			for(int j = 0; j < TASKS; j++) {
-				cout << st_mach.cost_arr[i][j] << " ";
-			}
-			cout << endl;
-		}
-	}
-
-	cout << endl;
-	*/
 	float costOf = 0;
 	int past = 2;
 
@@ -529,7 +515,7 @@ void printPath(void)
 		past = st_mach.path[i];
 	}
 	cout << "Path: ";
-	for(int i = st_mach.p_end; i > 0; i--) {
+	for(int i = st_mach.p_end -1; i > 0; i--) {
 		cout << st_mach.path[i] << " ";	
 	}
 	cout << "Cost: " << costOf << endl;
@@ -547,13 +533,12 @@ void calcCosts(int task)
 
 void getCosts(void)
 {
-	float t_center = (sqrt(pow(quad.x,2) + pow(quad.y,2) + pow(quad.z,2)))/quad.max_v;
 	float t_turtle = (sqrt(pow(quad.x - t_bot.x,2) + pow(quad.y - t_bot.y,2) + pow(quad.z - t_bot.z,2)))/quad.max_v;
 
-	tasks[0].cost = kdb*(t_center + tLand) - kb*(quad.b_max - quad.battery_low);
-	tasks[1].cost = kdb*(t_turtle + tLand) - kb*(quad.b_max - quad.battery_low);
-
 	for(int i = 2; i < TASKS; i++) {
+		if(!tasks[1].isDone) {
+			st_mach.cost_arr[i][1] = kdb*(t_turtle + tLand) - kb*(quad.b_max - quad.battery_low);
+		}
 		if(!tasks[i].isDone) {
 			calcCosts(i);
 		}
@@ -640,6 +625,10 @@ bool isComplete(void)
 
 void setStart(void)
 {
+	tasks[1].x = t_bot.x;
+	tasks[1].y = t_bot.y;
+	tasks[1].z = t_bot.z;
+
 	tasks[2].x = quad.x;
 	tasks[2].y = quad.y;
 	tasks[2].z = quad.z;
@@ -773,17 +762,16 @@ int main(int argc, char** argv) {
 
 		}else if(st_mach.state == 1) {
 			//Attempt to complete tasks. If all tasks are completed, land
-			if(st_mach.traj && st_mach.p_now != 0) {
-				float tTravel = getTime(tasks[st_mach.path[st_mach.p_now]].x, tasks[st_mach.path[st_mach.p_now]].y, tasks[st_mach.path[st_mach.p_now]].z);				
-				ROS_INFO("Completing task %i", st_mach.path[st_mach.p_now]);
+			if(st_mach.traj && st_mach.p_now != 0 && st_mach.path[st_mach.p_now] != 1) {
+				float tTravel = getTime(tasks[st_mach.path[st_mach.p_now]].x, tasks[st_mach.path[st_mach.p_now]].y, tasks[st_mach.path[st_mach.p_now]].z);
+				if(tTravel < 1) {
+					tTravel = 1.0;
+				}
+				ROS_INFO("Completing task %i, tTravel: %f", st_mach.path[st_mach.p_now], tTravel);
 				send_trajectory(tTravel, tasks[st_mach.path[st_mach.p_now]].time, tasks[st_mach.path[st_mach.p_now]].x, tasks[st_mach.path[st_mach.p_now]].y, tasks[st_mach.path[st_mach.p_now]].z);
 				st_mach.taskIs = st_mach.path[st_mach.p_now];
 				st_mach.traj = false;		
 				st_mach.p_now--;
-
-				if(st_mach.taskIs == 1) {
-					st_mach.state == 2;
-				}
 
 				if(quad.battery_low < quad.b_min && tasks[1].isDone) {
 					ROS_INFO("Battery Depleted, planning optimal route with charging");
@@ -791,10 +779,12 @@ int main(int argc, char** argv) {
 					st_mach.state = 0;
 				}
 
-			}else if(st_mach.p_now == 0) {
+			}else if(st_mach.traj && st_mach.p_now == 0) {
 				ROS_INFO("Tasks completed, waiting on charge station...");
 				st_mach.state = 2;
 
+			}else if(st_mach.traj && st_mach.path[st_mach.p_now] == 1) {
+				st_mach.state = 2;
 			}
 
 		}else if(st_mach.state == 2) {
@@ -802,11 +792,11 @@ int main(int argc, char** argv) {
 			float tTravel1 = getTime(t_bot.x, t_bot.y, t_bot.z + 0.3);
 			float pre_x = t_bot.x + t_bot.vx*(tTravel1 + 1);
 			float pre_y = t_bot.y + t_bot.vy*(tTravel1 + 1);
-			float tTravel2 = getTime(pre_x, pre_y, t_bot.z + 0.3);
+			//float tTravel2 = getTime(pre_x, pre_y, t_bot.z + 0.3);
 
 			if(st_mach.traj) {
-				ROS_INFO("Flying to Turtlebot, travel time: %f", tTravel1 + tTravel2);
-				send_trajectory(tTravel1 + tTravel2, 1.0, pre_x + t_bot.vx * OFFSET * cos(t_bot.yaw), pre_y + t_bot.vy * OFFSET * sin(t_bot.yaw), t_bot.z + 0.3);
+				ROS_INFO("Flying to Turtlebot, travel time: %f", tTravel1);
+				send_trajectory(tTravel1, 1.0, pre_x + t_bot.vx * OFFSET * cos(t_bot.yaw), pre_y + t_bot.vy * OFFSET * sin(t_bot.yaw), t_bot.z + 0.3);
 				st_mach.traj = false;
 				st_mach.state = 3;	
 			}
@@ -830,7 +820,6 @@ int main(int argc, char** argv) {
 
 			if((xy_D < 0.1) && (z < 0.05)) {
 				ROS_INFO("Killing Motors!");
-				tasks[1].isDone = true;
 				if(quad.battery_low < quad.b_min) {
 					st_mach.state = 8;
 					ROS_INFO("Charging to full...");
@@ -867,7 +856,7 @@ int main(int argc, char** argv) {
 
 			if(st_mach.traj) {
 				ROS_INFO("Landing at center, travel time: %f", tTravel);
-				send_trajectory(tTravel, 2.0, 0.0, 0.0, 1.0);
+				send_trajectory(tTravel, 2.0, 0.0, 0.0, 0.0);
 				st_mach.traj = false;
 				st_mach.state = 7;	
 			}
@@ -896,8 +885,10 @@ int main(int argc, char** argv) {
 			//Charge to full	
 			if(quad.battery >= quad.b_max) {
 				ROS_INFO("Fully charged!");
+				tasks[1].isDone = true;
+				quad.battery_low = quad.battery;
 				if(!isComplete() && !st_mach.ishalted) {
-					st_mach.state = 1;
+					st_mach.state = 0;
 					std_msgs::Bool stop_msg;
 					stop_msg.data = false;
 					stop_pub.publish(stop_msg);
@@ -912,7 +903,7 @@ int main(int argc, char** argv) {
 			//Charge while waiting for a new task
 			if(!isComplete() && !st_mach.ishalted) {
 				ROS_INFO("Resuming task completion!");
-				st_mach.state = 1;
+				st_mach.state = 0;
 				std_msgs::Bool stop_msg;
 				stop_msg.data = false;
 				stop_pub.publish(stop_msg);
