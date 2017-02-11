@@ -599,7 +599,7 @@ bool setPath(int end)
 	if(end == -1) {
 		if(pathCost(valid_tasks, 2)) {
 			ros::Duration total = now - ros::Time(0);
-			ROS_INFO("Optimal path found!");
+			ROS_INFO("Optimal path found! Search time: %f", total.toSec());
 			isFound = true;
 		}
 	}else {
